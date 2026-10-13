@@ -1,0 +1,420 @@
+use iot_nano_foundation::{DatabaseStorage, StorageConfiguration};
+use iot_storage::{
+    ApplicationDomainProfileRepository, ApplicationDomainResourceKind, ApplicationKind,
+    ApplicationRepository, ClientId, CreateApplicationAssetProfileRelation,
+    CreateApplicationDomainProfile, NewApplication, PlatformStore, RedirectUri,
+    TenantProfileConfiguration, TenantProfileContainmentRule, TenantProfileDefinition,
+    TenantProfileRepository,
+};
+use serde_json::json;
+use uuid::Uuid;
+
+async fn sqlite_store() -> (tempfile::TempDir, PlatformStore, Uuid) {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PlatformStore::open(&StorageConfiguration {
+        storage: DatabaseStorage::Sqlite,
+        database_url: None,
+        sqlite_path: Some(directory.path().join("application-domain.sqlite")),
+        sqlite_busy_timeout_ms: 5_000,
+    })
+    .await
+    .unwrap();
+    let tenant_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO tenants (id, slug, status) VALUES (?, 'application-domain', 'active')",
+    )
+    .bind(tenant_id.to_string())
+    .execute(store.sqlite_pool().unwrap())
+    .await
+    .unwrap();
+    (directory, store, tenant_id)
+}
+
+async fn create_application(store: &PlatformStore, tenant_id: Uuid, app_id: &str) {
+    ApplicationRepository::upsert_application(
+        store,
+        NewApplication {
+            app_id: app_id.parse().unwrap(),
+            tenant_id,
+            kind: ApplicationKind::Frontend,
+            launch_url: format!("http://{app_id}.example.test"),
+            client_id: format!("{app_id}-client").parse::<ClientId>().unwrap(),
+            redirect_uris: vec![
+                format!("http://{app_id}.example.test/callback")
+                    .parse::<RedirectUri>()
+                    .unwrap(),
+            ],
+            allowed_scopes: vec!["assets:read".to_owned()],
+            enabled: true,
+        },
+    )
+    .await
+    .unwrap();
+}
+
+fn domain_profile(
+    app_id: &str,
+    resource_kind: ApplicationDomainResourceKind,
+    name: &str,
+) -> CreateApplicationDomainProfile {
+    CreateApplicationDomainProfile {
+        app_id: app_id.parse().unwrap(),
+        resource_kind,
+        name: name.to_owned(),
+        definition: json!({"schema": {"power_w": {"type": "number"}}}),
+        live_view: json!({
+            "live_charts": [{
+                "metric": "power_w",
+                "label": "Active power",
+                "unit": "W",
+                "aggregation": "last"
+            }]
+        }),
+    }
+}
+
+#[tokio::test]
+async fn sqlite_application_domain_profiles_are_isolated_by_resource_kind() {
+    let (_directory, store, tenant_id) = sqlite_store().await;
+    create_application(&store, tenant_id, "powermonitor").await;
+
+    let meter = ApplicationDomainProfileRepository::create_application_domain_profile(
+        &store,
+        tenant_id,
+        domain_profile(
+            "powermonitor",
+            ApplicationDomainResourceKind::Device,
+            "Power Meter",
+        ),
+    )
+    .await
+    .unwrap();
+    ApplicationDomainProfileRepository::create_application_domain_profile(
+        &store,
+        tenant_id,
+        domain_profile(
+            "powermonitor",
+            ApplicationDomainResourceKind::Asset,
+            "Power Farm",
+        ),
+    )
+    .await
+    .unwrap();
+    let profiles = ApplicationDomainProfileRepository::list_application_domain_profiles(
+        &store,
+        tenant_id,
+        "powermonitor",
+        Some(ApplicationDomainResourceKind::Device),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(profiles, vec![meter]);
+}
+
+#[tokio::test]
+async fn sqlite_application_domain_profile_assignment_replaces_and_clears() {
+    let (_directory, store, tenant_id) = sqlite_store().await;
+    create_application(&store, tenant_id, "powermonitor").await;
+    sqlx::query("INSERT INTO devices (device_id, tenant_id) VALUES ('meter-a', ?)")
+        .bind(tenant_id.to_string())
+        .execute(store.sqlite_pool().unwrap())
+        .await
+        .unwrap();
+    let first = ApplicationDomainProfileRepository::create_application_domain_profile(
+        &store,
+        tenant_id,
+        domain_profile(
+            "powermonitor",
+            ApplicationDomainResourceKind::Device,
+            "Power Meter",
+        ),
+    )
+    .await
+    .unwrap();
+    let replacement = ApplicationDomainProfileRepository::create_application_domain_profile(
+        &store,
+        tenant_id,
+        domain_profile(
+            "powermonitor",
+            ApplicationDomainResourceKind::Device,
+            "Inverter",
+        ),
+    )
+    .await
+    .unwrap();
+    ApplicationDomainProfileRepository::assign_application_domain_profile(
+        &store,
+        tenant_id,
+        "powermonitor",
+        ApplicationDomainResourceKind::Device,
+        "meter-a",
+        Some(first.id),
+    )
+    .await
+    .unwrap();
+    ApplicationDomainProfileRepository::assign_application_domain_profile(
+        &store,
+        tenant_id,
+        "powermonitor",
+        ApplicationDomainResourceKind::Device,
+        "meter-a",
+        Some(replacement.id),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        ApplicationDomainProfileRepository::application_domain_profile_assignment(
+            &store,
+            tenant_id,
+            "powermonitor",
+            ApplicationDomainResourceKind::Device,
+            "meter-a",
+        )
+        .await
+        .unwrap(),
+        Some(replacement),
+    );
+    ApplicationDomainProfileRepository::assign_application_domain_profile(
+        &store,
+        tenant_id,
+        "powermonitor",
+        ApplicationDomainResourceKind::Device,
+        "meter-a",
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        ApplicationDomainProfileRepository::application_domain_profile_assignment(
+            &store,
+            tenant_id,
+            "powermonitor",
+            ApplicationDomainResourceKind::Device,
+            "meter-a",
+        )
+        .await
+        .unwrap(),
+        None,
+    );
+}
+
+#[tokio::test]
+async fn sqlite_application_domain_allows_only_asset_contains_relations() {
+    let (_directory, store, tenant_id) = sqlite_store().await;
+    create_application(&store, tenant_id, "powermonitor").await;
+    let farm = ApplicationDomainProfileRepository::create_application_domain_profile(
+        &store,
+        tenant_id,
+        domain_profile(
+            "powermonitor",
+            ApplicationDomainResourceKind::Asset,
+            "Power Farm",
+        ),
+    )
+    .await
+    .unwrap();
+    let zone = ApplicationDomainProfileRepository::create_application_domain_profile(
+        &store,
+        tenant_id,
+        domain_profile(
+            "powermonitor",
+            ApplicationDomainResourceKind::Asset,
+            "Power Zone",
+        ),
+    )
+    .await
+    .unwrap();
+    let meter = ApplicationDomainProfileRepository::create_application_domain_profile(
+        &store,
+        tenant_id,
+        domain_profile(
+            "powermonitor",
+            ApplicationDomainResourceKind::Device,
+            "Power Meter",
+        ),
+    )
+    .await
+    .unwrap();
+
+    let relation = ApplicationDomainProfileRepository::create_application_asset_profile_relation(
+        &store,
+        tenant_id,
+        CreateApplicationAssetProfileRelation {
+            app_id: "powermonitor".parse().unwrap(),
+            parent_profile_id: farm.id,
+            child_profile_id: zone.id,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(relation.parent_profile_id, farm.id);
+    assert_eq!(relation.child_profile_id, zone.id);
+
+    let error = ApplicationDomainProfileRepository::create_application_asset_profile_relation(
+        &store,
+        tenant_id,
+        CreateApplicationAssetProfileRelation {
+            app_id: "powermonitor".parse().unwrap(),
+            parent_profile_id: farm.id,
+            child_profile_id: meter.id,
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(error.to_string().contains("asset profiles"), "{error}");
+}
+
+#[tokio::test]
+async fn sqlite_tenant_profile_configuration_replaces_atomically() {
+    let (_directory, store, tenant_id) = sqlite_store().await;
+    let farm_id = Uuid::now_v7();
+    let zone_id = Uuid::now_v7();
+    let configuration = TenantProfileConfiguration {
+        version: 1,
+        profiles: vec![
+            TenantProfileDefinition {
+                id: farm_id,
+                resource_kind: ApplicationDomainResourceKind::Asset,
+                name: "Power Farm".to_owned(),
+                definition: json!({"level": "farm", "inherits": []}),
+                live_view: json!({}),
+            },
+            TenantProfileDefinition {
+                id: zone_id,
+                resource_kind: ApplicationDomainResourceKind::Asset,
+                name: "Power Zone".to_owned(),
+                definition: json!({"level": "zone", "inherits": ["Power Farm"]}),
+                live_view: json!({}),
+            },
+        ],
+        containment_rules: vec![TenantProfileContainmentRule {
+            parent_profile_id: farm_id,
+            child_profile_id: zone_id,
+        }],
+        permission_definitions: json!({"roles": ["operator"]}),
+    };
+
+    TenantProfileRepository::replace_tenant_profile_configuration(
+        &store,
+        tenant_id,
+        configuration.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        TenantProfileRepository::export_tenant_profile_configuration(&store, tenant_id)
+            .await
+            .unwrap(),
+        configuration
+    );
+
+    let invalid = TenantProfileConfiguration {
+        containment_rules: vec![TenantProfileContainmentRule {
+            parent_profile_id: farm_id,
+            child_profile_id: Uuid::now_v7(),
+        }],
+        ..configuration.clone()
+    };
+    assert!(
+        TenantProfileRepository::replace_tenant_profile_configuration(&store, tenant_id, invalid)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        TenantProfileRepository::export_tenant_profile_configuration(&store, tenant_id)
+            .await
+            .unwrap(),
+        configuration
+    );
+}
+
+#[tokio::test]
+async fn sqlite_tenant_profile_runtime_catalog_and_assignments_are_tenant_scoped() {
+    let (_directory, store, tenant_id) = sqlite_store().await;
+    sqlx::query("INSERT INTO devices (device_id, tenant_id) VALUES ('meter-a', ?)")
+        .bind(tenant_id.to_string())
+        .execute(store.sqlite_pool().unwrap())
+        .await
+        .unwrap();
+
+    let farm = TenantProfileDefinition {
+        id: Uuid::now_v7(),
+        resource_kind: ApplicationDomainResourceKind::Asset,
+        name: "Power Farm".to_owned(),
+        definition: json!({"level": "farm"}),
+        live_view: json!({}),
+    };
+    let meter = TenantProfileDefinition {
+        id: Uuid::now_v7(),
+        resource_kind: ApplicationDomainResourceKind::Device,
+        name: "Power Meter".to_owned(),
+        definition: json!({"telemetry_schema": {"power_w": {"type": "number"}}}),
+        live_view: json!({"live_charts": [{"metric": "power_w"}]}),
+    };
+    TenantProfileRepository::replace_tenant_profile_configuration(
+        &store,
+        tenant_id,
+        TenantProfileConfiguration {
+            version: 1,
+            profiles: vec![farm, meter.clone()],
+            containment_rules: vec![],
+            permission_definitions: json!({}),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        TenantProfileRepository::list_tenant_profile_definitions(
+            &store,
+            tenant_id,
+            Some(ApplicationDomainResourceKind::Device),
+        )
+        .await
+        .unwrap(),
+        vec![meter.clone()],
+    );
+
+    TenantProfileRepository::assign_tenant_profile(
+        &store,
+        tenant_id,
+        ApplicationDomainResourceKind::Device,
+        "meter-a",
+        Some(meter.id),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        TenantProfileRepository::tenant_profile_assignment(
+            &store,
+            tenant_id,
+            ApplicationDomainResourceKind::Device,
+            "meter-a",
+        )
+        .await
+        .unwrap(),
+        Some(meter),
+    );
+
+    TenantProfileRepository::assign_tenant_profile(
+        &store,
+        tenant_id,
+        ApplicationDomainResourceKind::Device,
+        "meter-a",
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        TenantProfileRepository::tenant_profile_assignment(
+            &store,
+            tenant_id,
+            ApplicationDomainResourceKind::Device,
+            "meter-a",
+        )
+        .await
+        .unwrap(),
+        None,
+    );
+}

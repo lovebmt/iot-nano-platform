@@ -1,0 +1,21 @@
+{% extends "platform_ui/base.html" %}
+
+{% block title %}System Infrastructure | IoT Nano{% endblock %}
+{% block account_kind %}System Account{% endblock %}
+{% block navigation_label %}System navigation{% endblock %}
+{% block navigation %}
+  <a class="nav-link" href="/system">Overview</a>
+  <a class="nav-link" href="/system#tenants">Tenants</a>
+  <a class="nav-link active" href="/system/infrastructure" aria-current="page">Infrastructure</a>
+{% endblock %}
+{% block content %}
+  <section class="page-heading page-heading-with-actions">
+    <div>
+      <p class="eyebrow">System Account</p>
+      <h1>System infrastructure</h1>
+      <p>Listener, storage, migration, and TLS readiness reported by the running monolith.</p>
+    </div>
+    <a id="infrastructure-refresh" class="button-link button-link-secondary" href="/system/infrastructure">Refresh now</a>
+  </section>
+  {% include "platform_ui/system_infrastructure_status.html" %}
+{% endblock %}

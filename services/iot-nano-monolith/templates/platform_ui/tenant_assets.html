@@ -1,0 +1,504 @@
+{% extends "platform_ui/base.html" %}
+
+{% block title %}Assets | IoT Nano{% endblock %}
+{% block account_kind %}Tenant Account{% endblock %}
+{% block navigation_label %}Tenant navigation{% endblock %}
+{% block navigation %}
+  {% let active_nav = "assets" %}
+  {% include "platform_ui/tenant_navigation.html" %}
+{% endblock %}
+{% block content %}
+  <section class="page-heading">
+    <p class="eyebrow">Tenant Account</p>
+    <h1>Assets</h1>
+  </section>
+  {% if page.has_notice %}
+    <p class="notice" role="status">{{ page.notice }}</p>
+  {% endif %}
+  <section class="workspace-panel">
+    <header class="panel-heading">
+      <div>
+        <h2>Create asset</h2>
+        <p class="panel-caption">Choose a parent only when this asset belongs below another asset.</p>
+      </div>
+    </header>
+    <form class="resource-create-form resource-create-form--asset" action="/tenant/assets" method="post" data-asset-create-form>
+      <label class="field">
+        <span>Name</span>
+        <input name="name" type="text" maxlength="128" required>
+      </label>
+      <label class="field">
+        <span>Parent asset</span>
+        <select name="parent_asset_id">
+          <option value="">Root asset</option>
+          {% for asset in page.parent_assets %}
+            <option value="{{ asset.value }}">{{ asset.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field" data-asset-profile-field hidden>
+        <span>Asset profile</span>
+        <select data-asset-profile-select></select>
+      </label>
+      <label class="field resource-create-metadata" data-asset-metadata-field hidden>
+        <span>Metadata (JSON)</span>
+        <textarea data-asset-metadata rows="3">{}</textarea>
+      </label>
+      <div class="form-actions resource-create-action"><button type="submit">Create asset</button></div>
+    </form>
+  </section>
+  <section class="workspace-panel">
+    <header class="panel-heading"><div><h2>Assets</h2><p class="panel-caption">Use a row link to retain the selected asset in the page URL.</p></div></header>
+    {% if page.assets.is_empty() %}
+      <p class="empty-state">No assets created.</p>
+    {% else %}
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th scope="col">Asset</th>
+              <th scope="col">Name</th>
+              <th scope="col">Parent asset</th>
+              <th scope="col">State</th>
+              <th scope="col">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for asset in page.assets %}
+              <tr id="asset-{{ asset.id|urlencode_strict }}">
+                <td><a class="row-anchor" href="#asset-{{ asset.id|urlencode_strict }}" aria-label="Link to asset {{ asset.name }}"><code>{{ asset.id }}</code></a></td>
+                <td>{{ asset.name }}</td>
+                <td>{{ asset.parent }}</td>
+                <td><span class="status-chip">{{ asset.status }}</span></td>
+                <td>
+                  <div class="action-buttons">
+                    <button type="button" class="button-link-secondary" data-asset-edit data-asset-id="{{ asset.id }}" aria-label="Edit {{ asset.name }}" title="Edit asset">Edit</button>
+                    <button type="button" class="button-danger" data-asset-delete data-asset-id="{{ asset.id }}" aria-label="Delete {{ asset.name }}" title="Delete asset">Delete</button>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </section>
+
+  <dialog id="asset-editor" class="dialog" aria-labelledby="asset-editor-title">
+    <header class="dialog-header">
+      <div>
+        <h2 id="asset-editor-title">Edit asset</h2>
+        <p class="panel-caption">Parent, profile, metadata and attributes are saved through the tenant management API.</p>
+      </div>
+      <button type="button" class="dialog-close" data-dialog-close aria-label="Close asset editor" title="Close">Close</button>
+    </header>
+    <nav class="dialog-tabs" aria-label="Asset editor sections" data-dialog-tabs>
+      <button type="button" class="active" data-dialog-tab="info">Asset info</button>
+      <button type="button" data-dialog-tab="assignment">Assignment</button>
+      <button type="button" data-dialog-tab="business">Business Data</button>
+    </nav>
+    <form data-asset-editor-form data-dialog-panel="info">
+      <label class="field">
+        <span>Name</span>
+        <input name="name" type="text" maxlength="128" required>
+      </label>
+      <label class="field">
+        <span>Parent asset</span>
+        <select name="parent_asset_id"></select>
+      </label>
+      <label class="field">
+        <span>Asset profile</span>
+        <select name="asset_profile_id"></select>
+      </label>
+      <label class="field">
+        <span>Metadata (JSON)</span>
+        <textarea name="metadata" rows="6" required></textarea>
+      </label>
+      <label class="field">
+        <span>Attributes (JSON)</span>
+        <textarea name="attributes" rows="6" required></textarea>
+      </label>
+      <div class="dialog-actions">
+        <button type="button" class="button-link-secondary" data-dialog-close>Cancel</button>
+        <button type="submit">Save changes</button>
+      </div>
+    </form>
+    <section class="field resource-access-editor" aria-labelledby="asset-owner-title" data-dialog-panel="assignment" hidden>
+      <span id="asset-owner-title">Assigned user</span>
+      <p class="panel-caption">Assign one regular user as owner. Transfer or unassigning clears existing shares.</p>
+      <form class="form-grid form-grid--profile" data-asset-owner-form>
+        <label class="field">
+          <span>User</span>
+          <select name="user_id"><option value="">Unassigned</option></select>
+        </label>
+        <div class="form-actions"><button type="submit" data-asset-owner-submit>Save assigned user</button></div>
+      </form>
+      <p class="json-feedback" data-asset-owner-status role="status"></p>
+    </section>
+    <section class="field resource-access-editor" aria-labelledby="asset-business-data-title" data-dialog-panel="business" hidden>
+      <div data-asset-business-data hidden>
+      <span id="asset-business-data-title">Business Data</span>
+      <p class="panel-caption">Choose a Business Type to view and manage this asset's records.</p>
+      <label class="field">
+        <span>Business Type</span>
+        <select data-asset-business-type></select>
+      </label>
+      <form class="form-grid" data-asset-business-form hidden></form>
+      <p class="json-feedback" data-asset-business-status role="status"></p>
+        <div data-asset-business-records></div>
+      </div>
+    </section>
+  </dialog>
+
+  <script>
+    (() => {
+      const ui = window.PlatformUi;
+      const createForm = document.querySelector("[data-asset-create-form]");
+      const profileField = document.querySelector("[data-asset-profile-field]");
+      const metadataField = document.querySelector("[data-asset-metadata-field]");
+      const createProfileSelect = document.querySelector("[data-asset-profile-select]");
+      const createMetadata = document.querySelector("[data-asset-metadata]");
+      const editor = document.getElementById("asset-editor");
+      const editorForm = document.querySelector("[data-asset-editor-form]");
+      const ownerForm = editor.querySelector("[data-asset-owner-form]");
+      const ownerStatus = editor.querySelector("[data-asset-owner-status]");
+      const ownerSubmit = editor.querySelector("[data-asset-owner-submit]");
+      const businessData = editor.querySelector("[data-asset-business-data]");
+      const businessType = editor.querySelector("[data-asset-business-type]");
+      const businessForm = editor.querySelector("[data-asset-business-form]");
+      const businessStatus = editor.querySelector("[data-asset-business-status]");
+      const businessRecords = editor.querySelector("[data-asset-business-records]");
+      let applicableBusinessTypes = [];
+      let selectedAsset = null;
+
+      if (!ui || !createForm || !editor || !editorForm || !ownerForm || !ownerStatus || !ownerSubmit) return;
+
+      const activateAssetTab = (name) => {
+        editor.querySelectorAll("[data-dialog-panel]").forEach((panel) => { panel.hidden = panel.dataset.dialogPanel !== name; });
+        editor.querySelectorAll("[data-dialog-tab]").forEach((tab) => { tab.classList.toggle("active", tab.dataset.dialogTab === name); });
+      };
+      editor.querySelectorAll("[data-dialog-tab]").forEach((tab) => tab.addEventListener("click", () => activateAssetTab(tab.dataset.dialogTab)));
+
+      const option = (value, label) => {
+        const node = document.createElement("option");
+        node.value = value || "";
+        node.textContent = label;
+        return node;
+      };
+
+      const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[character]));
+
+      const replaceOptions = (select, items, selected, emptyLabel) => {
+        select.replaceChildren(option("", emptyLabel));
+        items.forEach((item) => {
+          const node = option(item.id, item.name || item.username);
+          node.selected = node.value === (selected || "");
+          select.append(node);
+        });
+      };
+
+      document.querySelectorAll("[data-dialog-close]").forEach((control) => {
+        control.addEventListener("click", () => control.closest("dialog")?.close());
+      });
+
+      const loadCreateProfiles = async () => {
+        try {
+          const profiles = await ui.request("/api/v1/management/profiles/asset-profiles");
+          replaceOptions(createProfileSelect, profiles, null, "No profile");
+          profileField.hidden = false;
+          metadataField.hidden = false;
+        } catch (_) {
+          // The normal form remains usable when enhancement data is unavailable.
+        }
+      };
+
+      const loadOwner = async () => {
+        if (!selectedAsset) return;
+        const assetId = selectedAsset.id;
+        ownerStatus.textContent = "Loading users...";
+        try {
+          const users = await ui.request("/api/v1/management/users");
+          if (!editor.open || selectedAsset?.id !== assetId) return;
+          replaceOptions(
+            ownerForm.elements.user_id,
+            users.filter((user) => user.account_class === "user"),
+            selectedAsset.owner_user_id,
+            "Unassigned",
+          );
+          ownerStatus.textContent = "";
+        } catch (error) {
+          if (!editor.open || selectedAsset?.id !== assetId) return;
+          ownerStatus.textContent = error.message || "Users are unavailable.";
+        }
+      };
+
+      const loadBusinessTypes = async () => {
+        if (!selectedAsset || !businessData || !businessType || !businessStatus) return;
+        businessData.hidden = true;
+        businessStatus.textContent = "Loading Business Data...";
+        try {
+          const types = await ui.request("/api/v1/management/business/types");
+          if (!editor.open || !selectedAsset) return;
+          const applicable = types.filter((type) =>
+            !type.asset_profile_ids.length || type.asset_profile_ids.includes(selectedAsset.asset_profile_id),
+          );
+          if (!applicable.length) {
+            businessStatus.textContent = "No Business Types apply to this asset profile.";
+            businessData.hidden = false;
+            return;
+          }
+          applicableBusinessTypes = applicable;
+          replaceOptions(businessType, applicable, null, "Select a Business Type");
+          businessStatus.textContent = "Select a type to manage its records.";
+          businessData.hidden = false;
+        } catch (error) {
+          businessStatus.textContent = error.message || "Business Data is unavailable.";
+          businessData.hidden = false;
+        }
+      };
+
+      const valueForField = (field, value) => {
+        if (field.type === "boolean") return Boolean(value);
+        if (field.type === "integer" || field.type === "decimal") return value === "" ? null : Number(value);
+        return value;
+      };
+
+      const renderBusinessForm = (type) => {
+        delete businessForm.dataset.recordId;
+        businessForm.replaceChildren();
+        type.fields.forEach((field) => {
+          const label = document.createElement("label");
+          label.className = "field";
+          const title = document.createElement("span");
+          title.textContent = field.label;
+          let input;
+          if (field.type === "select") {
+            input = document.createElement("select");
+            input.append(option("", "Select"));
+            (field.options || []).forEach((item) => input.append(option(item, item)));
+          } else {
+            input = document.createElement(field.type === "boolean" ? "input" : "input");
+            input.type = field.type === "boolean" ? "checkbox" : field.type === "integer" || field.type === "decimal" ? "number" : field.type === "datetime" ? "datetime-local" : field.type;
+            if (field.type === "decimal") input.step = "any";
+          }
+          input.name = field.key;
+          input.required = field.required;
+          label.append(title, input);
+          businessForm.append(label);
+        });
+        const actions = document.createElement("div");
+        actions.className = "form-actions";
+        const submit = document.createElement("button");
+        submit.type = "submit";
+        submit.textContent = "Add record";
+        actions.append(submit);
+        businessForm.append(actions);
+        businessForm.hidden = false;
+      };
+
+      const loadBusinessRecords = async () => {
+        const type = applicableBusinessTypes.find((item) => item.id === businessType.value);
+        if (!selectedAsset || !type) return;
+        businessStatus.textContent = "Loading records...";
+        renderBusinessForm(type);
+        try {
+          const records = await ui.request(`/api/v1/management/assets/${selectedAsset.id}/business/records?business_type_id=${type.id}`);
+          businessRecords.replaceChildren();
+          if (!records.length) {
+            businessRecords.textContent = "No records yet.";
+          } else {
+            const table = document.createElement("table");
+            table.className = "data-table";
+            table.innerHTML = `<thead><tr>${type.fields.map((field) => `<th>${escapeHtml(field.label)}</th>`).join("")}<th>Actions</th></tr></thead>`;
+            const body = document.createElement("tbody");
+            records.forEach((record) => {
+              const row = document.createElement("tr");
+              row.innerHTML = `${type.fields.map((field) => `<td>${escapeHtml(record.data[field.key])}</td>`).join("")}<td><button type="button" class="button-link-secondary">Edit</button> <button type="button" class="button-danger">Delete</button></td>`;
+              const [edit, remove] = row.querySelectorAll("button");
+              edit.addEventListener("click", () => {
+                type.fields.forEach((field) => {
+                  const input = businessForm.elements[field.key];
+                  if (field.type === "boolean") input.checked = Boolean(record.data[field.key]);
+                  else input.value = record.data[field.key] ?? "";
+                });
+                businessForm.dataset.recordId = record.id;
+                businessForm.querySelector("button[type=submit]").textContent = "Save record";
+                businessForm.scrollIntoView({ block: "nearest" });
+              });
+              remove.addEventListener("click", async () => {
+                if (!window.confirm("Delete this Business Data record?")) return;
+                try {
+                  await ui.request(`/api/v1/management/assets/${selectedAsset.id}/business/records/${record.id}`, { method: "DELETE" });
+                  void loadBusinessRecords();
+                } catch (error) { businessStatus.textContent = error.message || "Record deletion failed."; }
+              });
+              body.append(row);
+            });
+            table.append(body);
+            businessRecords.append(table);
+          }
+          businessStatus.textContent = "";
+        } catch (error) { businessStatus.textContent = error.message || "Records are unavailable."; }
+      };
+
+      businessType.addEventListener("change", () => void loadBusinessRecords());
+      businessForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const type = applicableBusinessTypes.find((item) => item.id === businessType.value);
+        if (!selectedAsset || !type) return;
+        const data = {};
+        type.fields.forEach((field) => {
+          const input = businessForm.elements[field.key];
+          const value = field.type === "boolean" ? input.checked : input.value;
+          if (field.required || field.type === "boolean" || value !== "") {
+            data[field.key] = field.type === "datetime" && value
+              ? new Date(value).toISOString().replace(/\.\d{3}Z$/, ".000000000Z")
+              : valueForField(field, value);
+          }
+        });
+        const recordId = businessForm.dataset.recordId;
+        try {
+          if (recordId) {
+            await ui.request(`/api/v1/management/assets/${selectedAsset.id}/business/records/${recordId}`, { method: "PUT", body: { data } });
+            delete businessForm.dataset.recordId;
+            businessForm.querySelector("button[type=submit]").textContent = "Add record";
+          } else {
+            await ui.request(`/api/v1/management/assets/${selectedAsset.id}/business/records`, { method: "POST", body: { business_type_id: type.id, data } });
+          }
+          businessForm.reset();
+          void loadBusinessRecords();
+        } catch (error) { businessStatus.textContent = error.message || "Record save failed."; }
+      });
+
+      const openEditor = async (assetId, control) => {
+        ui.setPending(control, true);
+        try {
+          const [assets, profiles] = await Promise.all([
+            ui.request("/api/v1/management/assets"),
+            ui.request("/api/v1/management/profiles/asset-profiles"),
+          ]);
+          selectedAsset = assets.find((asset) => asset.id === assetId);
+          if (!selectedAsset) throw new Error("The asset no longer exists.");
+
+          const fields = editorForm.elements;
+          fields.name.value = selectedAsset.name;
+          replaceOptions(
+            fields.parent_asset_id,
+            assets.filter((asset) => asset.id !== selectedAsset.id),
+            selectedAsset.parent_asset_id,
+            "Root asset",
+          );
+          replaceOptions(fields.asset_profile_id, profiles, selectedAsset.asset_profile_id, "No profile");
+          fields.metadata.value = JSON.stringify(selectedAsset.metadata || {}, null, 2);
+          fields.attributes.value = JSON.stringify(selectedAsset.attributes || {}, null, 2);
+          editor.showModal();
+          activateAssetTab("info");
+          void loadOwner();
+          void loadBusinessTypes();
+          fields.name.focus();
+        } catch (error) {
+          ui.announce(error.message, "error");
+        } finally {
+          ui.setPending(control, false);
+        }
+      };
+
+      createForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const submit = event.submitter || createForm.querySelector("button[type=submit]");
+        ui.setPending(submit, true);
+        try {
+          await ui.request("/api/v1/management/assets", {
+            method: "POST",
+            body: {
+              name: createForm.elements.name.value.trim(),
+              parent_asset_id: createForm.elements.parent_asset_id.value || null,
+              asset_profile_id: createProfileSelect.value || null,
+              metadata: ui.parseObject(createMetadata.value),
+            },
+          });
+          ui.announce("Asset created.");
+          window.location.reload();
+        } catch (error) {
+          ui.announce(error.message, "error");
+        } finally {
+          ui.setPending(submit, false);
+        }
+      });
+
+      ownerForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!selectedAsset) return;
+        const fields = ownerForm.elements;
+        const ownerUserId = fields.user_id.value || null;
+        if (ownerUserId === (selectedAsset.owner_user_id || null)) return;
+        if (!window.confirm("Changing the assigned user clears all existing shares for this asset.")) return;
+        ui.setPending(ownerSubmit, true);
+        try {
+          await ui.request(`/api/v1/management/assets/${encodeURIComponent(selectedAsset.id)}/owner`, {
+            method: "PUT",
+            body: { user_id: ownerUserId },
+          });
+          selectedAsset.owner_user_id = ownerUserId;
+          ownerStatus.textContent = "";
+          ui.announce(ownerUserId ? "Assigned user updated. Existing shares were cleared." : "User assignment removed. Existing shares were cleared.");
+          window.location.reload();
+        } catch (error) {
+          ownerStatus.textContent = error.message || "The assigned user could not be saved.";
+        } finally {
+          ui.setPending(ownerSubmit, false);
+        }
+      });
+
+      editorForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!selectedAsset) return;
+        const submit = event.submitter || editorForm.querySelector("button[type=submit]");
+        ui.setPending(submit, true);
+        try {
+          const fields = editorForm.elements;
+          await ui.request(`/api/v1/management/assets/${encodeURIComponent(selectedAsset.id)}`, {
+            method: "PUT",
+            body: {
+              name: fields.name.value.trim(),
+              parent_asset_id: fields.parent_asset_id.value || null,
+              asset_profile_id: fields.asset_profile_id.value || null,
+              metadata: ui.parseObject(fields.metadata.value),
+              attributes: ui.parseObject(fields.attributes.value),
+            },
+          });
+          editor.close();
+          ui.announce("Asset changes saved.");
+          window.location.reload();
+        } catch (error) {
+          ui.announce(error.message, "error");
+        } finally {
+          ui.setPending(submit, false);
+        }
+      });
+
+      document.querySelectorAll("[data-asset-edit]").forEach((control) => {
+        control.addEventListener("click", () => openEditor(control.dataset.assetId, control));
+      });
+
+      document.querySelectorAll("[data-asset-delete]").forEach((control) => {
+        control.addEventListener("click", async () => {
+          const assetId = control.dataset.assetId;
+          if (!window.confirm(`Delete asset ${assetId}? Child assets and attached devices may be affected.`)) return;
+          ui.setPending(control, true);
+          try {
+            await ui.request(`/api/v1/management/assets/${encodeURIComponent(assetId)}`, { method: "DELETE" });
+            ui.announce("Asset deleted.");
+            window.location.reload();
+          } catch (error) {
+            ui.announce(error.message, "error");
+          } finally {
+            ui.setPending(control, false);
+          }
+        });
+      });
+
+      loadCreateProfiles();
+    })();
+  </script>
+{% endblock %}

@@ -1,0 +1,39 @@
+[package]
+name = "iot-nano-monolith"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+askama = "0.14.0"
+axum.workspace = true
+clap.workspace = true
+chrono.workspace = true
+fs2.workspace = true
+iot-api = { package = "iot-nano-api", path = "../iot-nano-api" }
+iot-nano-foundation = { path = "../../crates/iot-nano-foundation" }
+iot-nano-core = { path = "../iot-nano-core" }
+iot-nano-mqttd = { path = "../iot-nano-mqttd" }
+iot-nano-stream = { path = "../iot-nano-stream" }
+iot-storage = { path = "../../crates/iot-storage" }
+qrcodegen = "1.8.0"
+rustix = { version = "1.1.4", features = ["fs", "process"] }
+rusqlite = "0.37.0"
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10.9"
+sqlx.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+utoipa-swagger-ui.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+reqwest.workspace = true
+tempfile.workspace = true
+tower.workspace = true
+
+[lib]
+name = "iot_nano_monolith"

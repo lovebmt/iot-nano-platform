@@ -1,0 +1,21 @@
+services:
+  garden-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: garden-app
+    restart: unless-stopped
+    ports:
+      - "8003:8003"
+    environment:
+      PORT: "8003"
+      NODE_ENV: production
+      GARDEN_APP_SESSION_SECRET: "${GARDEN_APP_SESSION_SECRET:-a-super-secret-key-for-garden-app-session-2026}"
+      IOT_NANO_BASE_URL: "${IOT_NANO_BASE_URL:-http://192.168.1.32:17180}"
+      IOT_NANO_USER_PAT: "${IOT_NANO_USER_PAT:-iotpat_e6c2e031949e4253abd179da2c45a8ef30ce5b8adf514f818f823ee9db621abb}"
+      GARDEN_APP_DATABASE_PATH: "/app/data/garden-app.sqlite"
+    volumes:
+      - garden-app-data:/app/data
+
+volumes:
+  garden-app-data:

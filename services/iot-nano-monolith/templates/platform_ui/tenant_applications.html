@@ -1,0 +1,90 @@
+{% extends "platform_ui/base.html" %}
+
+{% block title %}Applications | IoT Nano{% endblock %}
+{% block account_kind %}Tenant Account{% endblock %}
+{% block navigation_label %}Tenant navigation{% endblock %}
+{% block navigation %}
+  {% let active_nav = "applications" %}
+  {% include "platform_ui/tenant_navigation.html" %}
+{% endblock %}
+{% block content %}
+  <section class="page-heading">
+    <p class="eyebrow">Tenant Account</p>
+    <h1>Applications</h1>
+    <p>Create and update OAuth application registrations.</p>
+  </section>
+  {% if page.has_notice %}
+    <p class="notice" role="status">{{ page.notice }}</p>
+  {% endif %}
+  <section class="workspace-panel">
+    <header>
+      <div class="panel-heading"><h2>Save application</h2></div>
+      <p class="panel-caption">Saving an existing application ID updates its registration.</p>
+    </header>
+    <form class="form-grid form-grid--application" action="/tenant/applications" method="post" data-application-form>
+      <label class="field">
+        <span>Application ID</span>
+        <input name="app_id" type="text" maxlength="64" required>
+      </label>
+      <label class="field">
+        <span>Client ID</span>
+        <input name="client_id" type="text" required>
+      </label>
+      <label class="field">
+        <span>Application kind</span>
+        <select name="kind">
+          <option value="frontend">Frontend</option>
+          <option value="full_stack">Full stack</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Launch URL</span>
+        <input name="launch_url" type="url" required>
+      </label>
+      <label class="field">
+        <span>Redirect URIs</span>
+        <textarea name="redirect_uris" rows="3" required></textarea>
+      </label>
+      <label class="field">
+        <span class="field-checkbox"><input name="enabled" type="checkbox" checked> Enabled</span>
+      </label>
+      <div class="form-actions"><button type="submit">Save application</button></div>
+    </form>
+  </section>
+  <section class="workspace-panel">
+    <header>
+      <div class="panel-heading"><h2>Registered applications</h2></div>
+      <p class="panel-caption">Client secrets are not displayed in the tenant console.</p>
+    </header>
+    {% if page.applications.is_empty() %}
+      <p class="empty-state">No OAuth applications have been registered for this tenant.</p>
+    {% else %}
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th scope="col">Application ID</th>
+              <th scope="col">Client ID</th>
+              <th scope="col">Kind</th>
+              <th scope="col">Launch URL</th>
+              <th scope="col">Redirect URIs</th>
+              <th scope="col">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for application in page.applications %}
+              <tr>
+                <td><strong>{{ application.app_id }}</strong></td>
+                <td><code>{{ application.client_id }}</code></td>
+                <td><span class="status-chip status-chip--neutral">{{ application.kind }}</span></td>
+                <td>{{ application.launch_url }}</td>
+                <td>{{ application.redirect_uris }}</td>
+                <td><span class="status-chip status-chip--neutral">{{ application.status }}</span></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

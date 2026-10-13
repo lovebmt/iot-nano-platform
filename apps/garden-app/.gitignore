@@ -1,0 +1,31 @@
+# Next.js and package-manager artifacts
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+
+# Local Garden App state and secrets
+data/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.db
+.env
+.env.*
+!.env.example
+
+# OS and logs
+.DS_Store
+*.log
+.vscode/
+.idea/
+
+# Python power-device simulator artifacts
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.venv/
+power-device-simulator/**/__pycache__/
+power-device-simulator/.venv/

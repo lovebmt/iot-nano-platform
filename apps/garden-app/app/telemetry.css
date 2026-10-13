@@ -1,0 +1,28 @@
+/* Loaded after the workspace stylesheet: telemetry labels must never inherit
+   the compact device-card rule that hides secondary small text. */
+.garden-tree-device .garden-tree-telemetry small {
+  display: block !important;
+  color: var(--yms-muted) !important;
+  font-size: 9px !important;
+  font-weight: 800 !important;
+  letter-spacing: .04em;
+}
+
+/* Device cards open on press so the controls work on touch screens. */
+.garden-tree-device { cursor: pointer; }
+.garden-tree-device:not(.is-open) .garden-tree-device-actions,
+.garden-tree-device:not(.is-open):hover .garden-tree-device-actions,
+.garden-tree-device:not(.is-open):focus-within .garden-tree-device-actions {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transform: translateY(-1px) !important;
+}
+.garden-tree-device.is-open .garden-tree-device-actions {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  transform: translateY(0) !important;
+}
+
+.garden-alert-badge { display:inline-grid; min-width:18px; height:18px; place-items:center; margin-left:6px; padding:0 4px; border-radius:9px; background:var(--yms-danger); color:#fff; font-size:10px; font-weight:800; }
+.garden-incident-list article { border-left:3px solid var(--yms-danger); }
+.garden-incident-list article button { min-height:28px; padding:0 8px; border:1px solid var(--yms-primary); border-radius:4px; background:var(--yms-primary); color:#fff; font-size:11px; font-weight:800; }

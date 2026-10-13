@@ -1,0 +1,26 @@
+import { NextResponse } from "next/server";
+
+import { requireGardenAdmin } from "../../../../../lib/api-auth";
+import { deleteProductionRecord, updateProductionRecord } from "../../../../../lib/database";
+
+export async function PUT(request: Request, context: { params: Promise<{ id: string }> }) {
+  const unauthorized = requireGardenAdmin(request);
+  if (unauthorized) return unauthorized;
+  try {
+    const body = await request.json() as { zoneId?: string; harvestedAt?: string; amountKg?: number; note?: string };
+    return NextResponse.json(updateProductionRecord((await context.params).id, body.zoneId ?? "", body.harvestedAt ?? "", body.amountKg ?? Number.NaN, body.note ?? ""));
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "invalid_request" }, { status: 400 });
+  }
+}
+
+export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
+  const unauthorized = requireGardenAdmin(request);
+  if (unauthorized) return unauthorized;
+  try {
+    deleteProductionRecord((await context.params).id);
+    return new NextResponse(null, { status: 204 });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "invalid_request" }, { status: 400 });
+  }
+}

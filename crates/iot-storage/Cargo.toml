@@ -1,0 +1,28 @@
+[package]
+name = "iot-storage"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+test-support = []
+
+[dependencies]
+argon2.workspace = true
+base64.workspace = true
+chrono.workspace = true
+iot-nano-foundation = { path = "../iot-nano-foundation" }
+rand_core.workspace = true
+serde.workspace = true
+sqlx.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+url = "2.5.8"
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

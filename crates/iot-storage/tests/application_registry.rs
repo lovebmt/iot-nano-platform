@@ -1,0 +1,394 @@
+use iot_nano_foundation::{DatabaseStorage, StorageConfiguration};
+use iot_storage::{
+    ApplicationKind, ApplicationRecord, ApplicationRepository, NewApplication, PlatformStore,
+    PlatformStoreError,
+};
+use sqlx::{Connection, PgConnection};
+use uuid::Uuid;
+
+mod common;
+
+async fn sqlite_store() -> (tempfile::TempDir, PlatformStore) {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PlatformStore::open(&StorageConfiguration {
+        storage: DatabaseStorage::Sqlite,
+        database_url: None,
+        sqlite_path: Some(directory.path().join("platform.sqlite")),
+        sqlite_busy_timeout_ms: 5_000,
+    })
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO tenants (id, slug, status) VALUES (?, 'application-registry', 'active')",
+    )
+    .bind(test_tenant_id().to_string())
+    .execute(store.sqlite_pool().unwrap())
+    .await
+    .unwrap();
+    (directory, store)
+}
+
+fn test_tenant_id() -> Uuid {
+    Uuid::from_u128(10_002)
+}
+
+fn application(enabled: bool) -> NewApplication {
+    NewApplication {
+        app_id: "power-monitor".parse().unwrap(),
+        tenant_id: test_tenant_id(),
+        kind: ApplicationKind::FullStack,
+        launch_url: "https://apps.example.test/power".to_owned(),
+        client_id: "client-power-monitor".parse().unwrap(),
+        redirect_uris: vec![
+            "https://apps.example.test/callback/z".parse().unwrap(),
+            "https://apps.example.test/callback/a".parse().unwrap(),
+        ],
+        allowed_scopes: vec!["telemetry:read".to_owned(), "devices:read".to_owned()],
+        enabled,
+    }
+}
+
+fn assert_application_shape(application: ApplicationRecord, enabled: bool) {
+    assert_eq!(application.app_id.as_str(), "power-monitor");
+    assert_eq!(application.tenant_id, test_tenant_id());
+    assert_eq!(application.kind, ApplicationKind::FullStack);
+    assert_eq!(application.launch_url, "https://apps.example.test/power");
+    assert_eq!(application.client_id.as_str(), "client-power-monitor");
+    assert_eq!(
+        application
+            .redirect_uris
+            .iter()
+            .map(|uri| uri.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "https://apps.example.test/callback/a",
+            "https://apps.example.test/callback/z",
+        ]
+    );
+    assert_eq!(
+        application.allowed_scopes,
+        ["devices:read", "telemetry:read"]
+    );
+    assert_eq!(application.enabled, enabled);
+}
+
+#[tokio::test]
+async fn sqlite_application_registry_validates_canonicalizes_and_upserts() {
+    let (_directory, store) = sqlite_store().await;
+
+    let created = ApplicationRepository::upsert_application(&store, application(true))
+        .await
+        .unwrap();
+    assert_application_shape(created, true);
+
+    let by_app_id = ApplicationRepository::find_application_by_app_id(&store, "power-monitor")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_application_shape(by_app_id, true);
+
+    let by_client_id =
+        ApplicationRepository::find_application_by_client_id(&store, "client-power-monitor")
+            .await
+            .unwrap()
+            .unwrap();
+    assert_application_shape(by_client_id, true);
+
+    let mut updated = application(false);
+    updated.launch_url = "https://apps.example.test/power-v2".to_owned();
+    let updated = ApplicationRepository::upsert_application(&store, updated)
+        .await
+        .unwrap();
+    assert_eq!(updated.launch_url, "https://apps.example.test/power-v2");
+    assert!(!updated.enabled);
+
+    let disabled =
+        ApplicationRepository::find_application_by_client_id(&store, "client-power-monitor").await;
+    assert!(matches!(
+        disabled,
+        Err(PlatformStoreError::ApplicationDisabled(ref app_id)) if app_id.as_str() == "power-monitor"
+    ));
+}
+
+#[tokio::test]
+async fn sqlite_application_registry_allows_only_one_application_per_tenant() {
+    let (_directory, store) = sqlite_store().await;
+    ApplicationRepository::upsert_application(&store, application(true))
+        .await
+        .unwrap();
+    let mut second = application(true);
+    second.app_id = "charge-station".parse().unwrap();
+    second.client_id = "client-charge-station".parse().unwrap();
+
+    assert!(matches!(
+        ApplicationRepository::upsert_application(&store, second).await,
+        Err(PlatformStoreError::TenantApplicationLimit(tenant_id)) if tenant_id == test_tenant_id()
+    ));
+}
+
+#[tokio::test]
+async fn sqlite_application_registry_rejects_domain_invalid_values() {
+    let (_directory, store) = sqlite_store().await;
+
+    assert!(matches!(
+        "Power Monitor".parse::<iot_storage::ApplicationId>(),
+        Err(PlatformStoreError::InvalidApplicationId(_))
+    ));
+    assert!(matches!(
+        "".parse::<iot_storage::ClientId>(),
+        Err(PlatformStoreError::EmptyApplicationClientId)
+    ));
+    assert!(matches!(
+        "".parse::<iot_storage::RedirectUri>(),
+        Err(PlatformStoreError::EmptyApplicationRedirectUri)
+    ));
+    assert!(matches!(
+        ApplicationRepository::upsert_application(
+            &store,
+            NewApplication {
+                launch_url: String::new(),
+                ..application(true)
+            }
+        )
+        .await,
+        Err(PlatformStoreError::EmptyApplicationLaunchUrl)
+    ));
+
+    let mut duplicate = application(true);
+    duplicate
+        .redirect_uris
+        .push(duplicate.redirect_uris[0].clone());
+    assert!(matches!(
+        ApplicationRepository::upsert_application(&store, duplicate).await,
+        Err(PlatformStoreError::DuplicateApplicationRedirectUri(_))
+    ));
+}
+
+#[test]
+fn redirect_uri_preserves_exact_valid_https_and_local_http_callbacks() {
+    for value in [
+        "https://App.Example.test:8443/callback?next=a%2Fb",
+        "http://localhost:3000/oauth/callback",
+    ] {
+        let redirect_uri = value.parse::<iot_storage::RedirectUri>().unwrap();
+        assert_eq!(redirect_uri.as_str(), value);
+    }
+}
+
+#[test]
+fn redirect_uri_rejects_unsafe_or_malformed_callbacks() {
+    for value in [
+        "/oauth/callback",
+        "javascript:alert(1)",
+        "com.example.app:/oauth/callback",
+        "https://example.test/oauth/callback#fragment",
+        "https://user:password@example.test/oauth/callback",
+        "https://@example.test/oauth/callback",
+        "https://example.test/oauth/call back",
+        "https://example.test/oauth/callback\n",
+        "https://[::1",
+    ] {
+        assert!(matches!(
+            value.parse::<iot_storage::RedirectUri>(),
+            Err(PlatformStoreError::InvalidApplicationRedirectUri(ref invalid)) if invalid == value
+        ));
+    }
+}
+
+#[tokio::test]
+async fn sqlite_application_registry_maps_write_time_client_id_conflicts_to_typed_errors() {
+    let (_directory, store) = sqlite_store().await;
+    let pool = store.sqlite_pool().unwrap();
+    sqlx::query("INSERT INTO tenants (id, slug, status) VALUES (?, 'application-race', 'active')")
+        .bind("00000000-0000-0000-0000-000000000999")
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::raw_sql(
+        "CREATE TRIGGER application_client_id_race
+         BEFORE INSERT ON applications
+         WHEN NEW.app_id = 'race-app'
+         BEGIN
+             INSERT INTO applications (
+                 app_id, tenant_id, kind, launch_url, client_id, allowed_scopes_json, enabled
+             ) VALUES (
+                'competing-app', '00000000-0000-0000-0000-000000000999', 'frontend', 'https://apps.example.test/competing',
+                 NEW.client_id, '[]', 1
+             );
+         END;",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+
+    let mut racing_application = application(true);
+    racing_application.app_id = "race-app".parse().unwrap();
+    let result = ApplicationRepository::upsert_application(&store, racing_application).await;
+
+    assert!(
+        matches!(
+            result,
+            Err(PlatformStoreError::ApplicationClientIdConflict(ref client_id))
+                if client_id == "client-power-monitor"
+        ),
+        "unexpected result: {result:?}"
+    );
+    assert!(
+        ApplicationRepository::find_application_by_app_id(&store, "competing-app")
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn sqlite_application_registry_rejects_a_concurrent_cross_tenant_app_id_takeover() {
+    let (_directory, store) = sqlite_store().await;
+    let foreign_tenant_id = Uuid::now_v7();
+    let pool = store.sqlite_pool().unwrap();
+    sqlx::query(
+        "INSERT INTO tenants (id, slug, status) VALUES (?, 'application-foreign', 'active')",
+    )
+    .bind(foreign_tenant_id.to_string())
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query("CREATE TABLE application_tenant_race_value (tenant_id TEXT NOT NULL)")
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO application_tenant_race_value (tenant_id) VALUES (?)")
+        .bind(foreign_tenant_id.to_string())
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::raw_sql(
+        "CREATE TRIGGER application_tenant_race
+         BEFORE INSERT ON applications
+         WHEN NEW.app_id = 'race-tenant-app'
+         BEGIN
+             INSERT INTO applications (
+                 app_id, tenant_id, kind, launch_url, client_id, allowed_scopes_json, enabled
+             ) SELECT
+                 'race-tenant-app', tenant_id, 'frontend',
+                 'https://apps.example.test/foreign', 'race-tenant-client', '[]', 1
+             FROM application_tenant_race_value;
+         END;",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+
+    let mut racing_application = application(true);
+    racing_application.app_id = "race-tenant-app".parse().unwrap();
+    racing_application.client_id = "race-tenant-client-local".parse().unwrap();
+    let result = ApplicationRepository::upsert_application(&store, racing_application).await;
+
+    assert!(matches!(
+        result,
+        Err(PlatformStoreError::ApplicationTenantConflict(ref app_id))
+            if app_id.as_str() == "race-tenant-app"
+    ));
+}
+
+#[tokio::test]
+#[ignore = "requires IOT_NANO_TIMESCALE_TEST_URL"]
+async fn timescale_application_registry_matches_sqlite_contract() {
+    let database_url = std::env::var("IOT_NANO_TIMESCALE_TEST_URL")
+        .expect("IOT_NANO_TIMESCALE_TEST_URL must be set when running ignored Timescale tests");
+    let mut connection = PgConnection::connect(&database_url).await.unwrap();
+    let database_name: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(&mut connection)
+        .await
+        .unwrap();
+    assert!(
+        database_name.starts_with("iot_nano_test_"),
+        "refusing to reset non-test database {database_name:?}"
+    );
+    common::reset_timescale_schema(&mut connection)
+        .await
+        .unwrap();
+
+    let store = PlatformStore::open(&StorageConfiguration {
+        storage: DatabaseStorage::Timescale,
+        database_url: Some(database_url),
+        sqlite_path: None,
+        sqlite_busy_timeout_ms: 5_000,
+    })
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO tenants (id, slug, status) VALUES ($1, 'application-registry', 'active')",
+    )
+    .bind(test_tenant_id())
+    .execute(store.timescale_pool().unwrap())
+    .await
+    .unwrap();
+    let record = ApplicationRepository::upsert_application(&store, application(true))
+        .await
+        .unwrap();
+    assert_application_shape(record, true);
+
+    sqlx::raw_sql(
+        "CREATE FUNCTION application_client_id_race() RETURNS trigger
+         LANGUAGE plpgsql AS $$
+         BEGIN
+             IF NEW.app_id = 'race-app' THEN
+                 INSERT INTO applications (
+                     app_id, tenant_id, kind, launch_url, client_id, allowed_scopes_json, enabled
+                 ) VALUES (
+                     'competing-app', NEW.tenant_id, 'frontend', 'https://apps.example.test/competing',
+                     NEW.client_id, '[]'::jsonb, TRUE
+                 );
+             END IF;
+             RETURN NEW;
+         END;
+         $$;
+         CREATE TRIGGER application_client_id_race_trigger
+         BEFORE INSERT ON applications
+         FOR EACH ROW EXECUTE FUNCTION application_client_id_race();",
+    )
+    .execute(store.timescale_pool().unwrap())
+    .await
+    .unwrap();
+    let mut racing_application = application(true);
+    racing_application.app_id = "race-app".parse().unwrap();
+    assert!(matches!(
+        ApplicationRepository::upsert_application(&store, racing_application).await,
+        Err(PlatformStoreError::ApplicationClientIdConflict(ref client_id))
+            if client_id == "client-power-monitor"
+    ));
+    assert!(
+        ApplicationRepository::find_application_by_app_id(&store, "competing-app")
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    sqlx::raw_sql(
+        "CREATE FUNCTION reject_application_redirect() RETURNS trigger
+         LANGUAGE plpgsql AS $$
+         BEGIN
+             RAISE EXCEPTION 'redirect write rejected';
+         END;
+         $$;
+         CREATE TRIGGER reject_application_redirect_trigger
+         BEFORE INSERT ON application_redirect_uris
+         FOR EACH ROW EXECUTE FUNCTION reject_application_redirect();",
+    )
+    .execute(store.timescale_pool().unwrap())
+    .await
+    .unwrap();
+    let mut replacement = application(true);
+    replacement.launch_url = "https://apps.example.test/replacement".to_owned();
+    assert!(
+        ApplicationRepository::upsert_application(&store, replacement)
+            .await
+            .is_err()
+    );
+    let unchanged = ApplicationRepository::find_application_by_app_id(&store, "power-monitor")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_application_shape(unchanged, true);
+}

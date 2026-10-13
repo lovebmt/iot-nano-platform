@@ -1,0 +1,84 @@
+{% extends "platform_ui/base.html" %}
+
+{% block title %}My Devices | IoT Nano{% endblock %}
+{% block account_kind %}User Account{% endblock %}
+{% block navigation_label %}Workspace navigation{% endblock %}
+{% block navigation %}
+  <a class="nav-link active" href="/app" aria-current="page">Devices</a>
+  <a class="nav-link" href="/app/assets">Assets</a>
+  <a class="nav-link" href="/app/invitations">Invitations</a>
+{% endblock %}
+{% block content %}
+  <section class="page-heading">
+    <p class="eyebrow">User Account</p>
+    <h1>My Devices</h1>
+    {% if page.can_manage %}
+      <p>Create devices and open resources you can access.</p>
+    {% else %}
+      <p>Devices you own or can access.</p>
+    {% endif %}
+  </section>
+  {% if page.has_notice %}
+    <p class="notice" role="status">{{ page.notice }}</p>
+  {% endif %}
+  {% if page.can_manage %}
+  <section class="workspace-panel">
+    <header class="panel-heading"><h2>Create device</h2></header>
+    <form class="form-grid" action="/app/devices" method="post">
+      <label class="field"><span>Display name</span><input name="display_name" type="text" maxlength="128" required></label>
+      <label class="field"><span>Asset</span><select name="asset_id"><option value="">Unassigned</option>{% for asset in page.owned_assets %}<option value="{{ asset.asset_id }}">{{ asset.name }}</option>{% endfor %}</select></label>
+      <div class="form-actions"><button type="submit">Create device</button></div>
+    </form>
+  </section>
+  {% endif %}
+  {% if page.can_claim_devices %}
+  <section class="workspace-panel">
+    <header class="panel-heading"><h2>Add device</h2></header>
+    <form class="form-grid" action="/app/devices/claim" method="post">
+      <label class="field"><span>Serial number</span><input name="serial_number" type="text" maxlength="128" autocomplete="off" required></label>
+      <label class="field"><span>Pairing code</span><input name="code" type="text" autocomplete="one-time-code" maxlength="40" required></label>
+      <div class="form-actions"><button type="submit">Add device</button></div>
+    </form>
+  </section>
+  {% endif %}
+  <section class="workspace-panel">
+    <header class="panel-heading">
+      <div>
+        <h2>Authorized devices</h2>
+        <p class="panel-caption">Open a device to inspect its access, telemetry, and alerts.</p>
+      </div>
+      <span class="operation-note">Authorized</span>
+    </header>
+    {% if page.devices.is_empty() %}
+      <p class="empty-state">No devices are available to this account.</p>
+    {% else %}
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th scope="col">Device</th>
+              <th scope="col">State</th>
+              <th scope="col">Permission</th>
+              <th scope="col">Access source</th>
+              <th scope="col"><span class="visually-hidden">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for device in page.devices %}
+              <tr>
+                <td>
+                  <a class="resource-link" href="/app/devices/{{ device.device_id|urlencode_strict }}">{{ device.display_name }}</a>
+                  <span class="resource-id">{{ device.device_id }}</span>
+                </td>
+                <td><span class="status-chip status-chip--neutral">{{ device.activity }}</span></td>
+                <td><span class="operation-note">{{ device.permission }}</span></td>
+                <td>{{ device.access_source }}</td>
+                <td><a class="button-link button-link-secondary action-link" href="/app/devices/{{ device.device_id|urlencode_strict }}">View device</a></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

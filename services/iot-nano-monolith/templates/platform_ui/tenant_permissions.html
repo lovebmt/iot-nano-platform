@@ -1,0 +1,40 @@
+{% extends "platform_ui/base.html" %}
+
+{% block title %}Permissions | IoT Nano{% endblock %}
+{% block account_kind %}Tenant Account{% endblock %}
+{% block navigation_label %}Tenant navigation{% endblock %}
+{% block navigation %}
+  {% let active_nav = "permissions" %}
+  {% include "platform_ui/tenant_navigation.html" %}
+{% endblock %}
+{% block content %}
+  <section class="page-heading">
+    <p class="eyebrow">Tenant Account</p>
+    <h1>Permissions</h1>
+    <p>Resource ownership and sharing are managed from the resource itself.</p>
+  </section>
+  {% if page.has_notice %}
+    <p class="notice" role="status">{{ page.notice }}</p>
+  {% endif %}
+  <section class="workspace-panel">
+    <header class="panel-heading">
+      <div><h2>Assigned user</h2><p class="panel-caption">Assign or transfer the single owner from a Device or Asset editor. Changing the owner clears existing shares.</p></div>
+    </header>
+    <div class="page-actions">
+      <a class="button-link button-link-secondary" href="/tenant/devices">Devices</a>
+      <a class="button-link button-link-secondary" href="/tenant/assets">Assets</a>
+    </div>
+  </section>
+  <section class="workspace-panel">
+    <header class="panel-heading">
+      <div><h2>Sharing</h2><p class="panel-caption">Only the assigned owner can share a resource directly with another regular user as View or Control.</p></div>
+    </header>
+    <p class="empty-state">Open a resource from the User workspace to manage its direct shares.</p>
+  </section>
+  <section class="workspace-panel">
+    <header class="panel-heading">
+      <div><h2>Groups</h2><p class="panel-caption">Groups organize users. They do not grant access to Devices or Assets.</p></div>
+    </header>
+    <a class="button-link button-link-secondary" href="/tenant/groups">Manage groups</a>
+  </section>
+{% endblock %}

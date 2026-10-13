@@ -1,0 +1,228 @@
+{% extends "platform_ui/base.html" %}
+
+{% block title %}Business Data | IoT Nano{% endblock %}
+{% block account_kind %}Tenant Account{% endblock %}
+{% block navigation_label %}Tenant navigation{% endblock %}
+{% block navigation %}
+  {% let active_nav = "business" %}
+  {% include "platform_ui/tenant_navigation.html" %}
+{% endblock %}
+{% block content %}
+  <section class="page-heading">
+    <p class="eyebrow">Tenant Account</p>
+    <h1>Business Data</h1>
+    <p>Define the asset-bound records available to your Tenant.</p>
+  </section>
+
+  <section class="workspace-panel">
+    <header>
+      <h2 data-business-type-form-title>Create business type</h2>
+      <p class="panel-caption">Business types are virtual tables backed by the Platform database.</p>
+    </header>
+    <form class="business-type-builder" data-business-type-form>
+      <aside class="business-builder-sidebar">
+        <p class="builder-section-label">Type details</p>
+        <label class="field">
+          <span>Name</span>
+          <input data-business-type-name type="text" maxlength="128" required>
+        </label>
+        <label class="field">
+          <span>Asset Profiles</span>
+          <select data-business-asset-profiles multiple size="5" aria-describedby="business-profile-help">
+            {% for profile in page.asset_profiles %}
+              <option value="{{ profile.id }}">{{ profile.name }}</option>
+            {% endfor %}
+          </select>
+          <small id="business-profile-help">Leave empty to allow every Asset Profile.</small>
+        </label>
+        <label class="field">
+          <span>Indexed field</span>
+          <select data-business-indexed-field name="indexed_field_key">
+            <option value="">No indexed field</option>
+          </select>
+          <small>Use this field for fast range or equality queries.</small>
+        </label>
+        <p class="business-builder-warning">
+          Removing an Asset Profile from a business type hard-deletes all records of that type belonging to Assets with that profile.
+          Deleting a business type hard-deletes its versions, records, and related configuration.
+        </p>
+        <p class="json-feedback" data-business-type-status role="status"></p>
+        <div class="business-builder-actions">
+          <button type="button" class="button-link-secondary" data-business-cancel-edit hidden>Cancel edit</button>
+          <button type="submit" data-business-save-type>Create business type</button>
+        </div>
+      </aside>
+      <fieldset class="business-builder-schema">
+        <legend>Schema fields</legend>
+        <p class="panel-caption">Each record created for this type follows these columns.</p>
+        <div class="business-field-headings" aria-hidden="true"><span>Field key</span><span>Label</span><span>Type</span><span>Options</span><span>Required</span><span></span></div>
+        <div data-business-fields></div>
+        <button type="button" class="button-link-secondary business-add-field" data-business-add-field>+ Add field</button>
+      </fieldset>
+    </form>
+  </section>
+
+  <section class="workspace-panel">
+    <header><h2>Business types</h2></header>
+    <p class="empty-state" data-business-types-empty>No business types have been created.</p>
+    <div class="table-scroll" data-business-types-table hidden>
+      <table class="data-table">
+        <thead><tr><th scope="col">Name</th><th scope="col">Fields</th><th scope="col">Indexed field</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+        <tbody data-business-types></tbody>
+      </table>
+    </div>
+  </section>
+
+  <script>
+    (() => {
+      const ui = window.PlatformUi;
+      const form = document.querySelector("[data-business-type-form]");
+      const fields = document.querySelector("[data-business-fields]");
+      const indexed = document.querySelector("[data-business-indexed-field]");
+      const profiles = document.querySelector("[data-business-asset-profiles]");
+      const name = document.querySelector("[data-business-type-name]");
+      const status = document.querySelector("[data-business-type-status]");
+      const title = document.querySelector("[data-business-type-form-title]");
+      const submit = document.querySelector("[data-business-save-type]");
+      const cancel = document.querySelector("[data-business-cancel-edit]");
+      const addField = document.querySelector("[data-business-add-field]");
+      const types = document.querySelector("[data-business-types]");
+      const empty = document.querySelector("[data-business-types-empty]");
+      const table = document.querySelector("[data-business-types-table]");
+      if (!ui || !form || !fields || !indexed || !profiles || !name || !status || !title || !submit || !cancel || !addField || !types || !empty || !table) return;
+
+      const fieldTypes = ["string", "integer", "decimal", "boolean", "date", "datetime", "select"];
+      let savedTypes = [];
+      let editingType = null;
+      const escapeAttribute = (value) => String(value || "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
+
+      const fieldRow = (field = {}) => {
+        const row = document.createElement("div");
+        row.className = "business-field-row";
+        row.dataset.businessField = "";
+        row.innerHTML = `
+          <label class="field"><span class="sr-only">Field key</span><input data-business-field-key type="text" value="${escapeAttribute(field.key)}" maxlength="64" placeholder="field_key" required></label>
+          <label class="field"><span class="sr-only">Label</span><input data-business-field-label type="text" value="${escapeAttribute(field.label)}" maxlength="128" placeholder="Field label" required></label>
+          <label class="field"><span class="sr-only">Type</span><select data-business-field-type>${fieldTypes.map((type) => `<option value="${type}"${type === (field.type || "string") ? " selected" : ""}>${type}</option>`).join("")}</select></label>
+          <label class="field"><span class="sr-only">Select options</span><input data-business-field-options type="text" value="${escapeAttribute((field.options || []).join(", "))}" placeholder="open, closed"></label>
+          <label class="field field-checkbox"><span class="sr-only">Required</span><input data-business-field-required type="checkbox"${field.required ? " checked" : ""} aria-label="Required"> <span>Required</span></label>
+          <button type="button" class="button-link-secondary" data-business-remove-field>Remove field</button>`;
+        row.querySelector("[data-business-remove-field]").addEventListener("click", () => {
+          row.remove();
+          refreshIndexedFields();
+        });
+        row.querySelectorAll("input, select").forEach((control) => control.addEventListener("input", refreshIndexedFields));
+        return row;
+      };
+
+      const readFields = () => [...fields.querySelectorAll("[data-business-field]")].map((row) => {
+        const type = row.querySelector("[data-business-field-type]").value;
+        const options = row.querySelector("[data-business-field-options]").value.split(",").map((value) => value.trim()).filter(Boolean);
+        return {
+          key: row.querySelector("[data-business-field-key]").value.trim(),
+          label: row.querySelector("[data-business-field-label]").value.trim(),
+          type,
+          required: row.querySelector("[data-business-field-required]").checked,
+          ...(type === "select" ? { options } : {}),
+        };
+      });
+
+      const refreshIndexedFields = () => {
+        const selected = indexed.value;
+        indexed.replaceChildren(new Option("No indexed field", ""));
+        readFields().filter((field) => field.key && fieldTypes.includes(field.type)).forEach((field) => {
+          indexed.add(new Option(`${field.label || field.key} (${field.key})`, field.key, false, field.key === selected));
+        });
+      };
+
+      const selectedProfiles = () => [...profiles.selectedOptions].map((option) => option.value);
+
+      const reset = () => {
+        editingType = null;
+        form.reset();
+        fields.replaceChildren(fieldRow({ type: "string" }));
+        refreshIndexedFields();
+        title.textContent = "Create business type";
+        submit.textContent = "Create business type";
+        cancel.hidden = true;
+        status.textContent = "";
+      };
+
+      const renderTypes = (nextTypes) => {
+        savedTypes = nextTypes;
+        types.replaceChildren();
+        empty.hidden = nextTypes.length > 0;
+        table.hidden = nextTypes.length === 0;
+        nextTypes.forEach((type) => {
+          const row = document.createElement("tr");
+          const typeFields = type.fields.map((field) => field.key).join(", ");
+          row.innerHTML = `<td></td><td></td><td></td><td class="table-actions"><button type="button" class="button-link-secondary" data-business-edit>Edit</button><button type="button" class="button-link-secondary" data-business-delete>Delete</button></td>`;
+          row.children[0].textContent = type.name;
+          row.children[1].textContent = typeFields;
+          row.children[2].textContent = type.indexed_field_key || "None";
+          row.querySelector("[data-business-edit]").addEventListener("click", () => {
+            editingType = type;
+            name.value = type.name;
+            fields.replaceChildren(...type.fields.map(fieldRow));
+            [...profiles.options].forEach((option) => { option.selected = type.asset_profile_ids.includes(option.value); });
+            refreshIndexedFields();
+            indexed.value = type.indexed_field_key || "";
+            title.textContent = `Edit ${type.name}`;
+            submit.textContent = "Save business type";
+            cancel.hidden = false;
+            status.textContent = "";
+            form.scrollIntoView({ behavior: "smooth", block: "start" });
+          });
+          row.querySelector("[data-business-delete]").addEventListener("click", async () => {
+            if (!window.confirm("Deleting a business type hard-deletes its versions, records, and related configuration.")) return;
+            try {
+              await ui.request(`/api/v1/management/business/types/${encodeURIComponent(type.id)}`, { method: "DELETE" });
+              ui.announce("Business type deleted.");
+              await loadTypes();
+              if (editingType && editingType.id === type.id) reset();
+            } catch (error) {
+              ui.announce(error.message, "error");
+            }
+          });
+          types.append(row);
+        });
+      };
+
+      const loadTypes = async () => renderTypes(await ui.request("/api/v1/management/business/types"));
+
+      addField.addEventListener("click", () => {
+        fields.append(fieldRow({ type: "string" }));
+        refreshIndexedFields();
+      });
+      cancel.addEventListener("click", reset);
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const payload = {
+          name: name.value.trim(),
+          fields: readFields(),
+          asset_profile_ids: selectedProfiles(),
+          indexed_field_key: indexed.value || null,
+        };
+        ui.setPending(submit, true);
+        status.textContent = "";
+        try {
+          const path = editingType
+            ? `/api/v1/management/business/types/${encodeURIComponent(editingType.id)}`
+            : "/api/v1/management/business/types";
+          await ui.request(path, { method: editingType ? "PUT" : "POST", body: payload });
+          ui.announce(editingType ? "Business type saved." : "Business type created.");
+          reset();
+          await loadTypes();
+        } catch (error) {
+          status.textContent = error.message;
+          ui.announce(error.message, "error");
+        } finally {
+          ui.setPending(submit, false);
+        }
+      });
+
+      reset();
+      loadTypes().catch((error) => { status.textContent = error.message; ui.announce(error.message, "error"); });
+    })();
+  </script>
+{% endblock %}

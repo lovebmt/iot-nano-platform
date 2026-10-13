@@ -1,0 +1,27 @@
+{% extends "platform_ui/base.html" %}
+
+{% block title %}Tenant Console | IoT Nano{% endblock %}
+{% block account_kind %}Tenant Account{% endblock %}
+{% block navigation_label %}Tenant navigation{% endblock %}
+{% block navigation %}
+  {% let active_nav = "overview" %}
+  {% include "platform_ui/tenant_navigation.html" %}
+{% endblock %}
+{% block content %}
+  <section class="page-heading">
+    <p class="eyebrow">Tenant Account</p>
+    <h1>Tenant Console</h1>
+    <p>Tenant setup and operational resources.</p>
+  </section>
+  <section class="summary-grid" aria-label="Tenant summary">
+    <article class="summary-item" data-testid="tenant-overview-users"><span>Users</span><strong>{{ page.user_count }}</strong></article>
+    <article class="summary-item" data-testid="tenant-overview-assets"><span>Assets</span><strong>{{ page.asset_count }}</strong></article>
+    <article class="summary-item" data-testid="tenant-overview-devices"><span>Devices</span><strong>{{ page.device_count }}</strong></article>
+    <article class="summary-item" data-testid="tenant-overview-open-alerts"><span>Open alerts</span><strong>{{ page.open_alert_count }}</strong></article>
+  </section>
+  <section class="workspace-panel">
+    <header><h2>Tenant activity</h2></header>
+    <p class="panel-caption">Review open incidents and manage tenant resources from the navigation.</p>
+    <p><a class="button-link-secondary" href="/tenant/alerts">View alerts</a></p>
+  </section>
+{% endblock %}

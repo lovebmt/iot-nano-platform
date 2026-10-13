@@ -1,0 +1,29 @@
+[package]
+name = "iot-nano-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+autobins = false
+
+[dependencies]
+chrono.workspace = true
+iot-nano-foundation = { path = "../../crates/iot-nano-foundation" }
+iot-storage = { path = "../../crates/iot-storage" }
+iot-stream = { package = "iot-nano-stream", path = "../../services/iot-nano-stream" }
+lettre.workspace = true
+rumqttc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+device-simulator = { path = "../../crates/device-simulator" }
+sqlx.workspace = true
+tempfile.workspace = true
+
+[lib]
+name = "iot_nano_core"

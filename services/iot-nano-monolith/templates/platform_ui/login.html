@@ -1,0 +1,29 @@
+{% extends "platform_ui/base.html" %}
+
+{% block title %}Sign in | IoT Nano Platform {% endblock %}
+{% block account_kind %}Platform sign in{% endblock %}
+{% block navigation_label %}Sign in{% endblock %}
+{% block navigation %}{% endblock %}
+{% block account_actions %}{% endblock %}
+{% block enhancement_scripts %}{% endblock %}
+
+{% block content %}
+<div class="page-heading">
+  <p class="eyebrow">Platform access</p>
+  <h1>Sign in</h1>
+  <p>Use the username and password assigned to your account.</p>
+</div>
+
+{% if page.has_error %}
+<p class="notice" role="alert">Unable to sign in. Check your credentials and try again.</p>
+{% endif %}
+
+<section class="workspace-panel">
+  <header><h2>Platform account</h2></header>
+  <form class="form-grid" method="post" action="/login">
+    <label class="field">Username<input name="username" autocomplete="username" required></label>
+    <label class="field">Password<input type="password" name="password" autocomplete="current-password" required></label>
+    <div class="form-actions"><button type="submit">Sign in</button></div>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,195 @@
+{% extends "platform_ui/base.html" %}
+
+{% block title %}Users | IoT Nano{% endblock %}
+{% block account_kind %}Tenant Account{% endblock %}
+{% block navigation_label %}Tenant navigation{% endblock %}
+{% block navigation %}
+  {% let active_nav = "users" %}
+  {% include "platform_ui/tenant_navigation.html" %}
+{% endblock %}
+{% block content %}
+  <section class="page-heading">
+    <p class="eyebrow">Tenant Account</p>
+    <h1>Users</h1>
+    <p>Create and view Users in this Tenant.</p>
+  </section>
+  {% if page.has_notice %}
+    <p class="notice" role="status">{{ page.notice }}</p>
+  {% endif %}
+  <section class="workspace-panel">
+    <header><h2>Create User</h2></header>
+    <form class="form-grid" action="/tenant/users" method="post">
+      <label class="field">
+        <span>Username</span>
+        <input name="username" type="text" autocomplete="username" maxlength="64" required>
+      </label>
+      <label class="field">
+        <span>Password</span>
+        <input name="password" type="password" autocomplete="new-password" required>
+      </label>
+      <button type="submit">Create User</button>
+    </form>
+  </section>
+  <section class="workspace-panel">
+    <header><h2>Users</h2></header>
+    {% if page.users.is_empty() %}
+      <p class="empty-state">No Users have been created.</p>
+    {% else %}
+      <div class="table-scroll">
+        <table class="data-table user-table">
+          <thead>
+            <tr>
+              <th scope="col">Username</th>
+              <th scope="col">Status</th>
+              <th scope="col">Account class</th>
+              <th scope="col"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for user in page.users %}
+              <tr>
+                <td>
+                  <div class="user-table__identity">
+                    <strong>{{ user.username }}</strong>
+                    <span>Tenant user</span>
+                  </div>
+                </td>
+                <td><span class="status-chip status-chip--neutral">{{ user.status }}</span></td>
+                <td><span class="status-chip status-chip--neutral">{{ user.account_class }}</span></td>
+                <td class="table-actions">
+                  {% if user.is_user_account %}
+                    <button
+                      type="button"
+                      class="button-link-secondary"
+                      data-user-capability-edit
+                      data-user-id="{{ user.id }}"
+                      data-username="{{ user.username }}"
+                      data-capabilities="{{ user.capabilities }}"
+                      aria-label="Edit capabilities for {{ user.username }}"
+                      title="Edit capabilities"
+                    >Capabilities</button>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </section>
+
+  <dialog id="user-capability-editor" class="dialog" aria-labelledby="user-capability-editor-title">
+    <header class="dialog-header">
+      <div>
+        <h2 id="user-capability-editor-title">User capabilities</h2>
+        <p class="panel-caption" data-user-capability-username></p>
+      </div>
+      <button type="button" class="dialog-close" data-user-capability-close aria-label="Close capability editor" title="Close">Close</button>
+    </header>
+    <form data-user-capability-form>
+      <fieldset class="capability-checkbox-grid">
+        <legend>Allow this User to</legend>
+        <label><input type="checkbox" name="create_assets"> <span>Create assets</span></label>
+        <label><input type="checkbox" name="create_devices"> <span>Create devices</span></label>
+        <label><input type="checkbox" name="claim_devices"> <span>Claim devices</span></label>
+        <label><input type="checkbox" name="assign_devices_to_assets"> <span>Assign devices to assets</span></label>
+        <label><input type="checkbox" name="edit_resources"> <span>Edit owned resources</span></label>
+        <label><input type="checkbox" name="control_devices"> <span>Control devices</span></label>
+        <label><input type="checkbox" name="share_owned_resources"> <span>Share owned resources</span></label>
+        <label><input type="checkbox" name="assign_application_profiles"> <span>Assign application profiles</span></label>
+        <label><input type="checkbox" name="manage_device_tokens"> <span>Manage device tokens</span></label>
+      </fieldset>
+      <fieldset class="capability-checkbox-grid" data-business-permission-controls>
+        <legend>Business data permissions</legend>
+        <label><input type="checkbox" data-business-permission="read"> <span>Read business data</span></label>
+        <label><input type="checkbox" data-business-permission="create"> <span>Create business data</span></label>
+        <label><input type="checkbox" data-business-permission="update"> <span>Update business data</span></label>
+        <label><input type="checkbox" data-business-permission="delete"> <span>Delete business data</span></label>
+      </fieldset>
+      <p class="json-feedback" data-user-capability-status role="status"></p>
+      <div class="dialog-actions">
+        <button type="button" class="button-link-secondary" data-user-capability-close>Cancel</button>
+        <button type="submit">Save capabilities</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+    (() => {
+      const ui = window.PlatformUi;
+      const editor = document.getElementById("user-capability-editor");
+      const form = document.querySelector("[data-user-capability-form]");
+      const username = document.querySelector("[data-user-capability-username]");
+      const status = document.querySelector("[data-user-capability-status]");
+      let selectedUsername = null;
+      if (!ui || !editor || !form || !username || !status) return;
+
+      const capabilityNames = [
+        "create_assets", "create_devices", "claim_devices", "assign_devices_to_assets", "edit_resources", "control_devices",
+        "share_owned_resources", "assign_application_profiles", "manage_device_tokens",
+      ];
+      const businessPermissionNames = ["read", "create", "update", "delete"];
+
+      document.querySelectorAll("[data-user-capability-close]").forEach((control) => {
+        control.addEventListener("click", () => editor.close());
+      });
+
+      document.querySelectorAll("[data-user-capability-edit]").forEach((control) => {
+        control.addEventListener("click", async () => {
+          selectedUsername = control.dataset.username;
+          const capabilities = new Set((control.dataset.capabilities || "").split(" ").filter(Boolean));
+          username.textContent = selectedUsername;
+          status.textContent = "";
+          capabilityNames.forEach((capability) => {
+            form.elements[capability].checked = capabilities.has(capability);
+          });
+          try {
+            const permissions = await ui.request(`/api/v1/management/business/users/${encodeURIComponent(selectedUsername)}/permissions`);
+            businessPermissionNames.forEach((permission) => {
+              form.querySelector(`[data-business-permission="${permission}"]`).checked = permissions[permission];
+            });
+            editor.showModal();
+          } catch (error) {
+            status.textContent = error.message;
+            ui.announce(error.message, "error");
+          }
+        });
+      });
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!selectedUsername) return;
+        const submit = event.submitter || form.querySelector("button[type=submit]");
+        const capabilities = capabilityNames.filter((capability) => form.elements[capability].checked);
+        const permissions = Object.fromEntries(
+          businessPermissionNames.map((permission) => [
+            permission,
+            form.querySelector(`[data-business-permission="${permission}"]`).checked,
+          ]),
+        );
+        ui.setPending(submit, true);
+        status.textContent = "";
+        try {
+          await Promise.all([
+            ui.request(`/api/v1/management/users/${encodeURIComponent(selectedUsername)}/capabilities`, {
+              method: "PUT",
+              body: { capabilities },
+            }),
+            ui.request(`/api/v1/management/business/users/${encodeURIComponent(selectedUsername)}/permissions`, {
+              method: "PUT",
+              body: permissions,
+            }),
+          ]);
+          editor.close();
+          ui.announce("User capabilities and business permissions saved.");
+          window.location.reload();
+        } catch (error) {
+          status.textContent = error.message;
+          ui.announce(error.message, "error");
+        } finally {
+          ui.setPending(submit, false);
+        }
+      });
+    })();
+  </script>
+{% endblock %}

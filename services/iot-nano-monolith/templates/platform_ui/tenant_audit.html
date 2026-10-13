@@ -1,0 +1,55 @@
+{% extends "platform_ui/base.html" %}
+
+{% block title %}Audit Log | IoT Nano{% endblock %}
+{% block account_kind %}Tenant Account{% endblock %}
+{% block navigation_label %}Tenant navigation{% endblock %}
+{% block navigation %}
+  {% let active_nav = "audit" %}
+  {% include "platform_ui/tenant_navigation.html" %}
+{% endblock %}
+{% block content %}
+  <section class="page-heading">
+    <p class="eyebrow">Tenant Account</p>
+    <h1>Audit log</h1>
+    <p>Review the immutable history of management activity within this tenant.</p>
+  </section>
+  <section class="workspace-panel">
+    <header>
+      <div class="panel-heading"><h2>Audit events</h2><span class="operation-note">Read-only</span></div>
+      <p class="panel-caption">Audit events cannot be edited or deleted from the tenant console.</p>
+    </header>
+    {% if page.events.is_empty() %}
+      <p class="empty-state">No audit events have been recorded for this tenant.</p>
+    {% else %}
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th scope="col">Timestamp</th>
+              <th scope="col">Actor kind</th>
+              <th scope="col">Actor ID</th>
+              <th scope="col">Action</th>
+              <th scope="col">Target</th>
+              <th scope="col">Changes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for event in page.events %}
+              <tr>
+                <td>{{ event.occurred_at }}</td>
+                <td><span class="status-chip status-chip--neutral">{{ event.actor_kind }}</span></td>
+                <td><code>{{ event.actor_id }}</code></td>
+                <td><code>{{ event.action }}</code></td>
+                <td><code>{{ event.target }}</code></td>
+                <td><pre class="audit-changes"><code>{{ event.changes }}</code></pre></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+    {% if page.has_older_events %}
+      <p><a class="resource-link" href="{{ page.older_events_href }}">Older events</a></p>
+    {% endif %}
+  </section>
+{% endblock %}
